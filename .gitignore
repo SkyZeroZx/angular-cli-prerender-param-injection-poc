@@ -42,3 +42,9 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# PoC runtime artifacts
+/PWNED.txt
+
+# Never tracked
+/ISSUE-DRAFT.md

@@ -7,7 +7,9 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:ng-ssr-poc-rce-xss": "node dist/ng-ssr-poc-rce-xss/server/server.mjs"
+    "serve:ssr:ng-ssr-poc-rce-xss": "node dist/ng-ssr-poc-rce-xss/server/server.mjs",
+    "backend": "node backend/server.mjs",
+    "build:static": "ng build --configuration static"
   },
   "private": true,
   "packageManager": "npm@11.13.0",
